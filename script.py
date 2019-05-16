@@ -7,6 +7,14 @@ def run(filename):
     """
     This function runs an mdl script
     """
+    p = mdl.parseFile(filename)
+
+    if p:
+        (commands, symbols) = p
+    else:
+        print ("Parsing failed.")
+        return
+
     view = [0,
             0,
             1];
@@ -15,116 +23,95 @@ def run(filename):
                50]
     light = [[0.5,
               0.75,
-              1],#[0,191,255]]
-             [0,
+              1],
+             [255,
               255,
               255]]
-    areflect = [0.1,
-                0.1,
-                0.1]
-    dreflect = [0.5,
-                0.5,
-                0.5]
-    sreflect = [0.5,
-                0.5,
-                0.5]
 
     color = [0, 0, 0]
     tmp = new_matrix()
     ident( tmp )
-    polygons=[]
-    systems = [ [x[:] for x in tmp] ]
+
+    stack = [ [x[:] for x in tmp] ]
     screen = new_screen()
     zbuffer = new_zbuffer()
     tmp = []
-    edges=[]
-    step_3d = 20
+    step_3d = 100
+    consts = ''
+    coords = []
+    coords1 = []
+    symbols['.white'] = ['constants',
+                         {'red': [0.2, 0.5, 0.5],
+                          'green': [0.2, 0.5, 0.5],
+                          'blue': [0.2, 0.5, 0.5]}]
+    reflect = '.white'
+    polygons = []
+    edges = []
 
-    p = mdl.parseFile(filename)
+    for command in commands:
+        if command['op'] == 'push':
+            stack.append([row[:] for row in stack[-1]])
 
-    if p:
-        (commands, symbols) = p
-        for c in commands:
-            line=c[0]
-            i=0
-            j=0
-            if line == 'sphere':
-            #print 'SPHERE\t' + str(args)
-                if not isinstance(c[1],float):
-                    i=1
-                add_sphere(polygons,float(c[1+i]), float(c[2+i]), float(c[3+i]),float(c[4+i]), step_3d)
-                matrix_mult( systems[-1], polygons )
-                draw_polygons(polygons, screen, zbuffer, view, ambient, light, areflect, dreflect, sreflect)
-                polygons = []
+        elif command['op'] == 'pop':
+            stack.pop()
 
-            elif line == 'torus':
-                #print 'TORUS\t' + str(args)
-                if not isinstance(c[1],float):
-                    i=1
-                add_torus(polygons,float(c[1+i]), float(c[2+i]), float(c[3+i]),float(c[4+i]), float(c[5+i]), step_3d)
-                matrix_mult( systems[-1], polygons )
-                draw_polygons(polygons, screen, zbuffer, view, ambient, light, areflect, dreflect, sreflect)
-                polygons = []
+        elif command['op'] == 'move':
+            t = make_translate(command['args'][0],command['args'][1],command['args'][2])
+            matrix_mult(stack[-1], t)
+            stack[-1] = [r[:] for r in t]
 
-            elif line == 'box':
-                #print 'BOX\t' + str(args)
-                if not isinstance(c[1],float):
-                    i=1
-                add_box(polygons,float(c[1+i]), float(c[2+i]),float(c[3+i]), float(c[4+i]), float(c[5+i]), float(c[6+i]))
-                matrix_mult( systems[-1], polygons )
-                draw_polygons(polygons, screen, zbuffer, view, ambient, light, areflect, dreflect, sreflect)
-                polygons = []
+        elif command['op'] == 'scale':
+            t = make_scale(command['args'][0],command['args'][1],command['args'][2])
+            matrix_mult(stack[-1], t)
+            stack[-1] = [r[:] for r in t]
 
+        elif command['op'] == 'rotate':
+            t = new_matrix()
+            if(command['args'][0] == 'x'):
+                t = make_rotX(command['args'][1]*(math.pi / 180))
 
-            elif line == 'line':
-                if not isinstance(c[1],float):
-                    i=1
-                if not isinstance(c[4+i],float):
-                    j=1
-                #print 'LINE\t' + str(args)
+            elif(command['args'][0] == 'y'):
+                t = make_rotY(command['args'][1]*(math.pi / 180))
 
-                add_edge( edges,float(c[1+i]), float(c[2+i]), float(c[3+i]),float(c[4+i+j]), float(c[5+i+j]), float(c[6+i+j]) )
-                matrix_mult( systems[-1], edges )
-                draw_lines(edges, screen, zbuffer, color)
-                edges = []
+            elif(command['args'][0] == 'z'):
+                t = make_rotZ(command['args'][1]*(math.pi / 180))
 
-            elif line == 'scale':
-                #print 'SCALE\t' + str(args)
-                t = make_scale(float(c[1]), float(c[2]), float(c[3]))
-                matrix_mult( systems[-1], t )
-                systems[-1] = [ x[:] for x in t]
+            else:
+                print("Check Axis")
 
-            elif line == 'move':
-                #print 'MOVE\t' + str(args)
-                t = make_translate(float(c[1]), float(c[2]), float(c[3]))
-                matrix_mult( systems[-1], t )
-                systems[-1] = [ x[:] for x in t]
+            matrix_mult(stack[-1], t)
+            stack[-1] = [r[:] for r in t]
 
-            elif line == 'rotate':
-                #print 'ROTATE\t' + str(args)
-                theta = float(c[2]) * (math.pi / 180)
-                if c[1] == 'x':
-                    t = make_rotX(theta)
-                elif c[1] == 'y':
-                    t = make_rotY(theta)
-                else:
-                    t = make_rotZ(theta)
-                matrix_mult( systems[-1], t )
-                systems[-1] = [ x[:] for x in t]
+        elif command['op'] in 'sphere box torus':
+            if command['op'] == 'sphere':
+                add_sphere(polygons, float(command['args'][0]), float(command['args'][1]), float(command['args'][2]), float(command['args'][3]), step_3d)
+            elif command['op'] == 'box':
+                add_box(polygons, float(command['args'][0]), float(command['args'][1]), float(command['args'][2]), float(command['args'][3]), float(command['args'][4]), float(command['args'][5]))
+            elif command['op'] == 'torus':
+                add_torus(polygons, float(command['args'][0]), float(command['args'][1]), float(command['args'][2]), float(command['args'][3]), float(command['args'][4]), step_3d)
 
-            elif line == 'push':
-                systems.append( [x[:] for x in systems[-1]] )
+            matrix_mult( stack[-1], polygons )
 
-            elif line == 'pop':
-                systems.pop()
+            if(command['constants']):
+                draw_polygons(polygons, screen, zbuffer, view, ambient, light, symbols, command['constants'])
+            else:
+                draw_polygons(polygons, screen, zbuffer, view, ambient, light, symbols, reflect)
+            polygons = []
 
-            elif line == 'display' or line == 'save':
-                if line == 'display':
-                    display(screen)
-                else:
-                    save_extension(screen, c[1]+c[2])
-    else:
-        print "Parsing failed."
-        return
+        elif command['op'] == 'line':
+            add_edge(edges, float(command['args'][0]), float(command['args'][1]), float(command['args'][2]), float(command['args'][3]), float(command['args'][4]), float(command['args'][5]))
+            matrix_mult( stack[-1], edges )
+            draw_lines(edges, screen, zbuffer, color)
+            edges = []
+
+        elif command['op'] == 'constants':
+            pass
+
+        elif command['op'] == 'save':
+            save_extension(screen, command['args'][0] + ".png")
+
+        elif command['op'] == 'display':
+            display(screen)
+
 
 # run("face.mdl")
